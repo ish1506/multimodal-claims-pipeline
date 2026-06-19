@@ -5,6 +5,11 @@ import time
 from typing import Protocol
 
 import httpx
+from openai.types.chat import (
+    ChatCompletionContentPartImageParam,
+    ChatCompletionContentPartTextParam,
+    ChatCompletionUserMessageParam,
+)
 
 from .context import ClaimContext
 from .images import PreparedImage
@@ -78,7 +83,9 @@ class OpenAIVLMClient:
     ) -> str:
         """Send one multimodal review request and return the response text."""
         prompt = build_prompt(context, prompt_config)
-        content: list[dict[str, object]] = [{"type": "text", "text": prompt}]
+        content: list[ChatCompletionContentPartTextParam | ChatCompletionContentPartImageParam] = [
+            {"type": "text", "text": prompt}
+        ]
         for image in images:
             content.append(
                 {
@@ -87,14 +94,7 @@ class OpenAIVLMClient:
                 }
             )
 
-        kwargs: dict[str, object] = {
-            "model": model,
-            "messages": [{"role": "user", "content": content}],
-            "temperature": 0,
-            "max_tokens": 1200,
-        }
-        if prompt_config == "concise_v1":
-            kwargs["response_format"] = {"type": "json_object"}
+        messages: list[ChatCompletionUserMessageParam] = [{"role": "user", "content": content}]
 
         LOGGER.info(
             "vlm_request row_index=%s user_id=%s prompt_config=%s model=%s image_count=%s image_ids=%s",
@@ -105,6 +105,20 @@ class OpenAIVLMClient:
             len(images),
             ",".join(image.image_id for image in images),
         )
-        response = self._client.chat.completions.create(**kwargs)
+        if prompt_config == "concise_v1":
+            response = self._client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0,
+                max_tokens=1200,
+                response_format={"type": "json_object"},
+            )
+        else:
+            response = self._client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0,
+                max_tokens=1200,
+            )
         LOGGER.info("vlm_response row_index=%s finish_reason=%s", context.row_index, response.choices[0].finish_reason)
         return response.choices[0].message.content or ""

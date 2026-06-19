@@ -12,6 +12,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.410",
     "pytest>=8.2.0",
     "ruff>=0.12.0",
 ]
@@ -19,3 +20,11 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["code"]
+
+[tool.pyright]
+include = ["code", "tests"]
+extraPaths = ["code"]
+typeCheckingMode = "basic"
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"

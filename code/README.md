@@ -8,6 +8,12 @@ Python 3.12 solution for the HackerRank Orchestrate multimodal evidence review t
 uv sync
 ```
 
+Run type checking with Pyright:
+
+```bash
+uv run pyright
+```
+
 Set credentials either in the shell or in a root-level `.env` file:
 
 ```bash
