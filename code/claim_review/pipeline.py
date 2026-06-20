@@ -12,6 +12,7 @@ from .images import prepare_images
 from .normalization import io_failure_prediction, normalize_prediction
 from .prompts import build_prompt
 from .response_parser import extract_prediction_json
+from .rules import apply_review_rules
 from .usage import UsageCollector
 from .validation import validate_prediction, validate_prediction_rows
 from .vlm import OpenAIVLMClient, VLMClient
@@ -36,6 +37,7 @@ def review_claim(
     prompt_config: str,
     model: str,
     cache: PredictionCache,
+    apply_rules: bool,
     max_parse_attempts: int = 2,
 ) -> dict[str, str]:
     """Review one claim through cache, VLM call, parsing, normalization, and validation."""
@@ -44,7 +46,7 @@ def review_claim(
     cached = cache.get(cache_key)
     if cached is not None:
         LOGGER.info("cache_hit row_index=%s user_id=%s prompt_config=%s model=%s", context.row_index, context.user_id, prompt_config, model)
-        return cached
+        return apply_review_rules(cached, context) if apply_rules else cached
 
     LOGGER.info("cache_miss row_index=%s user_id=%s prompt_config=%s model=%s", context.row_index, context.user_id, prompt_config, model)
     last_error: Exception | None = None
@@ -57,6 +59,9 @@ def review_claim(
             prediction = normalize_prediction(raw, context)
             validate_prediction(prediction, context.source_row, context.row_index + 1)
             cache.set(cache_key, prediction, last_response)
+            if apply_rules:
+                prediction = apply_review_rules(prediction, context)
+            validate_prediction(prediction, context.source_row, context.row_index + 1)
             return prediction
         except ValueError as error:
             LOGGER.warning("vlm_parse_or_validation_error row_index=%s attempt=%s error=%s", context.row_index, attempt, error)
@@ -75,6 +80,7 @@ def run_predictions(
     limit: int | None = None,
     client: VLMClient | None = None,
     usage_collector: UsageCollector | None = None,
+    apply_rules: bool = True,
 ) -> list[dict[str, str]]:
     """Run sequential predictions for a CSV and atomically write the output file."""
     repo_root = repo_root or repo_root_from_code()
@@ -129,6 +135,7 @@ def run_predictions(
                 prompt_config=prompt_config,
                 model=model,
                 cache=cache,
+                apply_rules=apply_rules,
             )
         validate_prediction(prediction, row, index + 1)
         predictions.append(prediction)

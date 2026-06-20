@@ -26,6 +26,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--prompt-config", choices=sorted(PROMPT_CONFIGS), default=DEFAULT_PROMPT_CONFIG)
     parser.add_argument("--cache", type=Path, default=repo_root / "code" / ".cache" / "claim_review_cache.json")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--disable-rules", action="store_true", help="Disable deterministic post-processing safeguards.")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--log-file", type=Path, default=None)
     args = parser.parse_args(argv)
@@ -59,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
             prompt_config=args.prompt_config,
             cache_path=args.cache,
             limit=args.limit,
+            apply_rules=not args.disable_rules,
         )
     except Exception as error:
         LOGGER.exception("prediction_run_failed")

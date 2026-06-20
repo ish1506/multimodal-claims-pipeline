@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-DEFAULT_MODEL = "gpt-4.1-mini"
+DEFAULT_MODEL = "gpt-5.4-mini"
 DEFAULT_PROMPT_CONFIG = "rubric_v1"
 
 INPUT_COLUMNS = ["user_id", "image_paths", "user_claim", "claim_object"]

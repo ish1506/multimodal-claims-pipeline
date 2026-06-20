@@ -55,6 +55,8 @@ uv run python code/evaluation/main.py
 
 Evaluation compares `concise_v1` and `rubric_v1` on `dataset/sample_claims.csv`, writes per-prompt sample predictions under `code/evaluation/`, and updates `code/evaluation/evaluation_report.md`. The report includes exact-match metrics, a weighted score, F1 for semicolon-delimited fields such as `risk_flags` and `supporting_image_ids`, and slice metrics by object type and expected status.
 
+Deterministic post-processing safeguards run by default after VLM output to catch narrow high-risk contradictions. Use `--disable-rules` only when comparing raw model behavior.
+
 To add VLM-as-judge diagnostics for a small subset, pass a stronger judge model:
 
 ```bash

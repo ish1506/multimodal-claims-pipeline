@@ -382,6 +382,7 @@ def write_report(
     usage_summary: dict[str, float] | None = None,
     judge_model: str | None = None,
     judge_results: dict[str, list[dict[str, str]]] | None = None,
+    rules_enabled: bool = True,
 ) -> None:
     """Write the sample evaluation report with metrics and operational notes."""
     sample_calls = len(expected) * len(results)
@@ -401,6 +402,7 @@ def write_report(
         f"Sample images processed per prompt: {count_images(expected)}",
         f"Prompt configurations compared: {', '.join(sorted(results))}",
         f"Chosen final strategy: `{chosen}`",
+        f"Deterministic post-processing rules: {'enabled' if rules_enabled else 'disabled'}",
         "",
         "## Metrics",
         "",
@@ -523,7 +525,7 @@ def write_report(
             f"- Estimated full-test runtime at that average latency: {estimated_test_runtime_seconds:.1f}s.",
             "- TPM/RPM considerations: processing is sequential, so request rate is roughly one in-flight call at a time; "
             "reduce --limit during debugging if quota or rate limits are tight.",
-            "- Cache keys include prompt config, model, claim content, user history, requirements, and image hashes.",
+            "- Cache keys include prompt config, rendered prompt text, model, claim content, user history, requirements, and image hashes.",
             f"- Sample claim_status distribution: {dict(claim_status_counts)}.",
         ]
     )
@@ -545,6 +547,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--report", type=Path, default=repo_root / "code" / "evaluation" / "evaluation_report.md")
     parser.add_argument("--no-cache", action="store_true", help="Force fresh VLM calls so API usage can be measured.")
+    parser.add_argument("--disable-rules", action="store_true", help="Disable deterministic post-processing safeguards.")
     parser.add_argument("--judge-model", default=None, help="Optional VLM-as-judge model for semantic sample scoring.")
     parser.add_argument("--judge-limit", type=int, default=None, help="Limit rows judged per prompt config to control cost.")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
@@ -596,6 +599,7 @@ def main(argv: list[str] | None = None) -> int:
                 cache_path=None if args.no_cache else repo_root / "code" / ".cache" / f"claim_review_cache_{config}.json",
                 limit=args.limit,
                 usage_collector=usage_collector,
+                apply_rules=not args.disable_rules,
             )
         except Exception as error:
             LOGGER.exception("evaluation_run_failed prompt_config=%s", config)
@@ -645,6 +649,7 @@ def main(argv: list[str] | None = None) -> int:
         usage_summary=usage_collector.summary(),
         judge_model=args.judge_model,
         judge_results=judge_results,
+        rules_enabled=not args.disable_rules,
     )
     print(f"Wrote evaluation report to {args.report}")
     print(f"Log file: {log_file}")
