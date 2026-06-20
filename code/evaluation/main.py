@@ -16,6 +16,7 @@ from claim_review.env import load_repo_dotenv
 from claim_review.logging_config import default_log_file, setup_logging
 from claim_review.pipeline import repo_root_from_code, run_predictions
 from claim_review.prompts import PROMPT_CONFIGS
+from claim_review.usage import UsageCollector
 
 LOGGER = logging.getLogger(__name__)
 
@@ -59,23 +60,37 @@ def float_env(name: str, default: float) -> float:
         return default
 
 
-def estimate_tokens_and_cost(*, calls: int, images: int) -> dict[str, float]:
+def estimate_tokens_and_cost(
+    *,
+    calls: int,
+    images: int,
+    observed_usage: dict[str, float] | None = None,
+) -> dict[str, float]:
     """Estimate token usage and cost from explicit, configurable assumptions."""
-    text_tokens = float_env("CLAIM_REVIEW_EST_TEXT_INPUT_TOKENS_PER_CALL", EST_TEXT_INPUT_TOKENS_PER_CALL)
-    image_tokens = float_env("CLAIM_REVIEW_EST_IMAGE_TOKENS_PER_IMAGE", EST_IMAGE_TOKENS_PER_IMAGE)
-    output_tokens = float_env("CLAIM_REVIEW_EST_OUTPUT_TOKENS_PER_CALL", EST_OUTPUT_TOKENS_PER_CALL)
     input_cost = float_env("CLAIM_REVIEW_EST_INPUT_COST_PER_1M_USD", EST_INPUT_COST_PER_1M_USD)
     output_cost = float_env("CLAIM_REVIEW_EST_OUTPUT_COST_PER_1M_USD", EST_OUTPUT_COST_PER_1M_USD)
+    if observed_usage is not None:
+        input_tokens_per_call = observed_usage["prompt_tokens_per_call"]
+        output_tokens_per_call = observed_usage["completion_tokens_per_call"]
+        estimated_input_tokens = calls * input_tokens_per_call
+        estimated_output_tokens = calls * output_tokens_per_call
+        text_tokens = 0.0
+        image_tokens = 0.0
+    else:
+        text_tokens = float_env("CLAIM_REVIEW_EST_TEXT_INPUT_TOKENS_PER_CALL", EST_TEXT_INPUT_TOKENS_PER_CALL)
+        image_tokens = float_env("CLAIM_REVIEW_EST_IMAGE_TOKENS_PER_IMAGE", EST_IMAGE_TOKENS_PER_IMAGE)
+        output_tokens_per_call = float_env("CLAIM_REVIEW_EST_OUTPUT_TOKENS_PER_CALL", EST_OUTPUT_TOKENS_PER_CALL)
+        estimated_input_tokens = (calls * text_tokens) + (images * image_tokens)
+        estimated_output_tokens = calls * output_tokens_per_call
 
-    estimated_input_tokens = (calls * text_tokens) + (images * image_tokens)
-    estimated_output_tokens = calls * output_tokens
     estimated_cost = (estimated_input_tokens / 1_000_000 * input_cost) + (
         estimated_output_tokens / 1_000_000 * output_cost
     )
     return {
         "text_tokens_per_call": text_tokens,
         "image_tokens_per_image": image_tokens,
-        "output_tokens_per_call": output_tokens,
+        "input_tokens_per_call": estimated_input_tokens / calls if calls else 0.0,
+        "output_tokens_per_call": estimated_output_tokens / calls if calls else 0.0,
         "input_cost_per_1m": input_cost,
         "output_cost_per_1m": output_cost,
         "input_tokens": estimated_input_tokens,
@@ -93,14 +108,15 @@ def write_report(
     results: dict[str, list[dict[str, str]]],
     chosen: str,
     runtime_seconds: float,
+    usage_summary: dict[str, float] | None = None,
 ) -> None:
     """Write the sample evaluation report with metrics and operational notes."""
     sample_calls = len(expected) * len(results)
     sample_images = count_images(expected) * len(results)
     test_calls = len(test_rows)
     test_images = count_images(test_rows)
-    sample_estimates = estimate_tokens_and_cost(calls=sample_calls, images=sample_images)
-    test_estimates = estimate_tokens_and_cost(calls=test_calls, images=test_images)
+    sample_estimates = estimate_tokens_and_cost(calls=sample_calls, images=sample_images, observed_usage=usage_summary)
+    test_estimates = estimate_tokens_and_cost(calls=test_calls, images=test_images, observed_usage=usage_summary)
     average_seconds_per_call = runtime_seconds / sample_calls if sample_calls else 0.0
     estimated_test_runtime_seconds = average_seconds_per_call * test_calls
 
@@ -140,10 +156,32 @@ def write_report(
             f"- Model calls for the full test set with the chosen prompt: {test_calls} uncached calls.",
             f"- Images processed for sample comparison: {sample_images}.",
             f"- Images expected for full test processing: {test_images}.",
+        ]
+    )
+    if usage_summary is not None:
+        lines.extend(
+            [
+                "- Token estimate source: observed API usage from "
+                f"{usage_summary['calls']:.0f} fresh calls and {usage_summary['images']:.0f} images.",
+                "- Observed average usage: "
+                f"{usage_summary['prompt_tokens_per_call']:.0f} input tokens/call, "
+                f"{usage_summary['completion_tokens_per_call']:.0f} output tokens/call, "
+                f"{usage_summary['total_tokens_per_call']:.0f} total tokens/call.",
+            ]
+        )
+    else:
+        lines.append(
+            "- Token estimate source: static assumptions because this evaluation did not record fresh API usage."
+        )
+        lines.append(
             "- Token estimate assumptions: "
             f"{sample_estimates['text_tokens_per_call']:.0f} text input tokens/call, "
             f"{sample_estimates['image_tokens_per_image']:.0f} image tokens/image, "
-            f"{sample_estimates['output_tokens_per_call']:.0f} output tokens/call.",
+            f"{sample_estimates['output_tokens_per_call']:.0f} output tokens/call."
+        )
+
+    lines.extend(
+        [
             "- Sample estimated usage: "
             f"{sample_estimates['input_tokens']:.0f} input tokens and {sample_estimates['output_tokens']:.0f} output tokens.",
             "- Full-test estimated usage: "
@@ -173,6 +211,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--prompt-configs", nargs="+", choices=sorted(PROMPT_CONFIGS), default=["concise_v1", "rubric_v1"])
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--report", type=Path, default=repo_root / "code" / "evaluation" / "evaluation_report.md")
+    parser.add_argument("--no-cache", action="store_true", help="Force fresh VLM calls so API usage can be measured.")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--log-file", type=Path, default=None)
     args = parser.parse_args(argv)
@@ -206,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
     test_rows = load_claim_rows(test_path, labeled=False)
 
     results: dict[str, list[dict[str, str]]] = {}
+    usage_collector = UsageCollector()
     started_at = time.perf_counter()
     for config in args.prompt_configs:
         output_path = repo_root / "code" / "evaluation" / f"sample_predictions_{config}.csv"
@@ -215,8 +255,9 @@ def main(argv: list[str] | None = None) -> int:
                 output_path=output_path,
                 model=args.model,
                 prompt_config=config,
-                cache_path=repo_root / "code" / ".cache" / f"claim_review_cache_{config}.json",
+                cache_path=None if args.no_cache else repo_root / "code" / ".cache" / f"claim_review_cache_{config}.json",
                 limit=args.limit,
+                usage_collector=usage_collector,
             )
         except Exception as error:
             LOGGER.exception("evaluation_run_failed prompt_config=%s", config)
@@ -245,6 +286,7 @@ def main(argv: list[str] | None = None) -> int:
         results=results,
         chosen=chosen,
         runtime_seconds=runtime_seconds,
+        usage_summary=usage_collector.summary(),
     )
     print(f"Wrote evaluation report to {args.report}")
     print(f"Log file: {log_file}")

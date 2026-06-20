@@ -11,6 +11,7 @@ from .csv_io import load_claim_rows, load_evidence_requirements, load_user_histo
 from .images import prepare_images
 from .normalization import io_failure_prediction, normalize_prediction
 from .response_parser import extract_prediction_json
+from .usage import UsageCollector
 from .validation import validate_prediction, validate_prediction_rows
 from .vlm import OpenAIVLMClient, VLMClient
 
@@ -71,6 +72,7 @@ def run_predictions(
     cache_path: Path | None = None,
     limit: int | None = None,
     client: VLMClient | None = None,
+    usage_collector: UsageCollector | None = None,
 ) -> list[dict[str, str]]:
     """Run sequential predictions for a CSV and atomically write the output file."""
     repo_root = repo_root or repo_root_from_code()
@@ -81,7 +83,7 @@ def run_predictions(
         source_rows = source_rows[:limit]
 
     cache = PredictionCache(cache_path)
-    vlm_client = client or OpenAIVLMClient()
+    vlm_client = client or OpenAIVLMClient(usage_collector=usage_collector)
     predictions: list[dict[str, str]] = []
 
     LOGGER.info(

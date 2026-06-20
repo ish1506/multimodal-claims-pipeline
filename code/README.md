@@ -55,6 +55,14 @@ uv run python code/evaluation/main.py
 
 Evaluation compares `concise_v1` and `rubric_v1` on `dataset/sample_claims.csv`, writes per-prompt sample predictions under `code/evaluation/`, and updates `code/evaluation/evaluation_report.md`.
 
+To calibrate token and cost estimates from real API usage, run a small uncached sample:
+
+```bash
+uv run python code/evaluation/main.py --limit 5 --no-cache --log-file logs/usage_calibration.log
+```
+
+The run logs `vlm_usage` lines with OpenAI-reported prompt, completion, and total tokens. When fresh usage is recorded, the evaluation report uses observed average input/output tokens per call instead of the static token assumptions.
+
 Use `--log-file logs/evaluation.log` to pick a stable log path for evaluation.
 
 ## Recommended Runbook

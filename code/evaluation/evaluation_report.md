@@ -59,13 +59,14 @@ Chosen final strategy: `rubric_v1`
 - Model calls for the full test set with the chosen prompt: 44 uncached calls.
 - Images processed for sample comparison: 58.
 - Images expected for full test processing: 82.
-- Token estimate assumptions: 1200 text input tokens/call, 765 image tokens/image, 300 output tokens/call.
-- Sample estimated usage: 92370 input tokens and 12000 output tokens.
-- Full-test estimated usage: 115530 input tokens and 13200 output tokens.
+- Token estimate source: observed API usage from 10 fresh calls and 16 images.
+- Observed average usage: 2555 input tokens/call, 252 output tokens/call, 2807 total tokens/call.
+- Sample estimated usage: 25546 input tokens and 2523 output tokens.
+- Full-test estimated usage: 112402 input tokens and 11101 output tokens.
 - Pricing assumptions: $0.4000/1M input tokens and $1.6000/1M output tokens (override with CLAIM_REVIEW_EST_INPUT_COST_PER_1M_USD and CLAIM_REVIEW_EST_OUTPUT_COST_PER_1M_USD).
-- Estimated full-test processing cost: $0.0673.
-- Sample runtime used for planning: 0.2s total, 0.00s/call average.
-- Estimated full-test runtime at that average latency: 0.2s.
+- Estimated full-test processing cost: $0.0627.
+- Sample runtime used for planning: 47.8s total, 4.78s/call average.
+- Estimated full-test runtime at that average latency: 210.1s.
 - TPM/RPM considerations: processing is sequential, so request rate is roughly one in-flight call at a time; reduce --limit during debugging if quota or rate limits are tight.
 - Cache keys include prompt config, model, claim content, user history, requirements, and image hashes.
 - Sample claim_status distribution: {'supported': 12, 'not_enough_information': 3, 'contradicted': 5}.

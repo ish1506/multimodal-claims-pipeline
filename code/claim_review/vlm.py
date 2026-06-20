@@ -14,6 +14,7 @@ from openai.types.chat import (
 from .context import ClaimContext
 from .images import PreparedImage
 from .prompts import build_prompt
+from .usage import UsageCollector, UsageSample
 
 LOGGER = logging.getLogger(__name__)
 HTTP_LOGGER = logging.getLogger("claim_review.http")
@@ -36,7 +37,7 @@ class VLMClient(Protocol):
 class OpenAIVLMClient:
     """OpenAI-backed vision client with safe HTTP request/response logging."""
 
-    def __init__(self) -> None:
+    def __init__(self, usage_collector: UsageCollector | None = None) -> None:
         """Create an OpenAI client with HTTP event hooks installed."""
         from openai import OpenAI
 
@@ -47,6 +48,7 @@ class OpenAIVLMClient:
             }
         )
         self._client = OpenAI(http_client=http_client)
+        self._usage_collector = usage_collector
 
     @staticmethod
     def _safe_url(url: httpx.URL) -> str:
@@ -121,4 +123,27 @@ class OpenAIVLMClient:
                 max_tokens=1200,
             )
         LOGGER.info("vlm_response row_index=%s finish_reason=%s", context.row_index, response.choices[0].finish_reason)
+        if response.usage is not None:
+            LOGGER.info(
+                "vlm_usage row_index=%s prompt_config=%s model=%s image_count=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+                context.row_index,
+                prompt_config,
+                model,
+                len(images),
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
+                response.usage.total_tokens,
+            )
+            if self._usage_collector is not None:
+                self._usage_collector.record(
+                    UsageSample(
+                        row_index=context.row_index,
+                        prompt_config=prompt_config,
+                        model=model,
+                        image_count=len(images),
+                        prompt_tokens=response.usage.prompt_tokens,
+                        completion_tokens=response.usage.completion_tokens,
+                        total_tokens=response.usage.total_tokens,
+                    )
+                )
         return response.choices[0].message.content or ""
