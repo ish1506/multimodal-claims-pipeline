@@ -10,8 +10,8 @@ Chosen final strategy: `rubric_v1`
 
 | prompt_config | claim_status_accuracy | core_exact_match |
 |---|---:|---:|
-| concise_v1 | 0.700 | 0.300 |
-| rubric_v1 | 0.750 | 0.300 |
+| concise_v1 | 0.650 | 0.250 |
+| rubric_v1 | 0.750 | 0.250 |
 
 ## Per-Column Accuracy
 
@@ -23,16 +23,16 @@ Chosen final strategy: `rubric_v1`
 | image_paths | 1.000 |
 | user_claim | 1.000 |
 | claim_object | 1.000 |
-| evidence_standard_met | 0.900 |
+| evidence_standard_met | 0.850 |
 | evidence_standard_met_reason | 0.000 |
-| risk_flags | 0.550 |
-| issue_type | 0.550 |
+| risk_flags | 0.500 |
+| issue_type | 0.500 |
 | object_part | 0.800 |
-| claim_status | 0.700 |
+| claim_status | 0.650 |
 | claim_status_justification | 0.000 |
-| supporting_image_ids | 0.900 |
+| supporting_image_ids | 0.850 |
 | valid_image | 0.850 |
-| severity | 0.550 |
+| severity | 0.500 |
 
 ### rubric_v1
 
@@ -42,24 +42,30 @@ Chosen final strategy: `rubric_v1`
 | image_paths | 1.000 |
 | user_claim | 1.000 |
 | claim_object | 1.000 |
-| evidence_standard_met | 0.850 |
+| evidence_standard_met | 0.750 |
 | evidence_standard_met_reason | 0.000 |
-| risk_flags | 0.550 |
-| issue_type | 0.500 |
+| risk_flags | 0.500 |
+| issue_type | 0.450 |
 | object_part | 0.850 |
 | claim_status | 0.750 |
 | claim_status_justification | 0.000 |
-| supporting_image_ids | 0.800 |
+| supporting_image_ids | 0.700 |
 | valid_image | 0.900 |
 | severity | 0.600 |
 
 ## Operational Analysis
 
-- Model calls for this sample comparison: 40.
-- Model calls for the test set with the chosen prompt: one per uncached claim row.
+- Model calls for this sample comparison: 40 (20 rows x 2 prompt configs).
+- Model calls for the full test set with the chosen prompt: 44 uncached calls.
 - Images processed for sample comparison: 58.
-- Token usage depends on image encoding and model accounting; prompts are compact JSON contexts plus submitted images.
-- Cost estimate should be filled with the actual model pricing after a real run.
-- Runtime is sequential by design for reproducibility and simpler RPM/TPM handling.
+- Images expected for full test processing: 82.
+- Token estimate assumptions: 1200 text input tokens/call, 765 image tokens/image, 300 output tokens/call.
+- Sample estimated usage: 92370 input tokens and 12000 output tokens.
+- Full-test estimated usage: 115530 input tokens and 13200 output tokens.
+- Pricing assumptions: $0.4000/1M input tokens and $1.6000/1M output tokens (override with CLAIM_REVIEW_EST_INPUT_COST_PER_1M_USD and CLAIM_REVIEW_EST_OUTPUT_COST_PER_1M_USD).
+- Estimated full-test processing cost: $0.0673.
+- Sample runtime used for planning: 0.2s total, 0.00s/call average.
+- Estimated full-test runtime at that average latency: 0.2s.
+- TPM/RPM considerations: processing is sequential, so request rate is roughly one in-flight call at a time; reduce --limit during debugging if quota or rate limits are tight.
 - Cache keys include prompt config, model, claim content, user history, requirements, and image hashes.
-- Sample claim_status distribution: {'supported': 13, 'contradicted': 5, 'not_enough_information': 2}.
+- Sample claim_status distribution: {'supported': 12, 'not_enough_information': 3, 'contradicted': 5}.

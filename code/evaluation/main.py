@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -17,6 +18,12 @@ from claim_review.pipeline import repo_root_from_code, run_predictions
 from claim_review.prompts import PROMPT_CONFIGS
 
 LOGGER = logging.getLogger(__name__)
+
+EST_TEXT_INPUT_TOKENS_PER_CALL = 1200
+EST_IMAGE_TOKENS_PER_IMAGE = 765
+EST_OUTPUT_TOKENS_PER_CALL = 300
+EST_INPUT_COST_PER_1M_USD = 0.40
+EST_OUTPUT_COST_PER_1M_USD = 1.60
 
 
 def accuracy(predictions: list[dict[str, str]], expected: list[dict[str, str]], field: str) -> float:
@@ -43,15 +50,60 @@ def count_images(rows: list[dict[str, str]]) -> int:
     return sum(len([part for part in row["image_paths"].split(";") if part.strip()]) for row in rows)
 
 
+def float_env(name: str, default: float) -> float:
+    """Read a float environment override, falling back on invalid values."""
+    try:
+        return float(os.environ.get(name, default))
+    except ValueError:
+        LOGGER.warning("invalid_float_env name=%s value=%r default=%s", name, os.environ.get(name), default)
+        return default
+
+
+def estimate_tokens_and_cost(*, calls: int, images: int) -> dict[str, float]:
+    """Estimate token usage and cost from explicit, configurable assumptions."""
+    text_tokens = float_env("CLAIM_REVIEW_EST_TEXT_INPUT_TOKENS_PER_CALL", EST_TEXT_INPUT_TOKENS_PER_CALL)
+    image_tokens = float_env("CLAIM_REVIEW_EST_IMAGE_TOKENS_PER_IMAGE", EST_IMAGE_TOKENS_PER_IMAGE)
+    output_tokens = float_env("CLAIM_REVIEW_EST_OUTPUT_TOKENS_PER_CALL", EST_OUTPUT_TOKENS_PER_CALL)
+    input_cost = float_env("CLAIM_REVIEW_EST_INPUT_COST_PER_1M_USD", EST_INPUT_COST_PER_1M_USD)
+    output_cost = float_env("CLAIM_REVIEW_EST_OUTPUT_COST_PER_1M_USD", EST_OUTPUT_COST_PER_1M_USD)
+
+    estimated_input_tokens = (calls * text_tokens) + (images * image_tokens)
+    estimated_output_tokens = calls * output_tokens
+    estimated_cost = (estimated_input_tokens / 1_000_000 * input_cost) + (
+        estimated_output_tokens / 1_000_000 * output_cost
+    )
+    return {
+        "text_tokens_per_call": text_tokens,
+        "image_tokens_per_image": image_tokens,
+        "output_tokens_per_call": output_tokens,
+        "input_cost_per_1m": input_cost,
+        "output_cost_per_1m": output_cost,
+        "input_tokens": estimated_input_tokens,
+        "output_tokens": estimated_output_tokens,
+        "cost": estimated_cost,
+    }
+
+
 def write_report(
     path: Path,
     *,
     model: str,
     expected: list[dict[str, str]],
+    test_rows: list[dict[str, str]],
     results: dict[str, list[dict[str, str]]],
     chosen: str,
+    runtime_seconds: float,
 ) -> None:
     """Write the sample evaluation report with metrics and operational notes."""
+    sample_calls = len(expected) * len(results)
+    sample_images = count_images(expected) * len(results)
+    test_calls = len(test_rows)
+    test_images = count_images(test_rows)
+    sample_estimates = estimate_tokens_and_cost(calls=sample_calls, images=sample_images)
+    test_estimates = estimate_tokens_and_cost(calls=test_calls, images=test_images)
+    average_seconds_per_call = runtime_seconds / sample_calls if sample_calls else 0.0
+    estimated_test_runtime_seconds = average_seconds_per_call * test_calls
+
     lines = [
         "# Evaluation Report",
         "",
@@ -84,12 +136,27 @@ def write_report(
         [
             "## Operational Analysis",
             "",
-            f"- Model calls for this sample comparison: {len(expected) * len(results)}.",
-            "- Model calls for the test set with the chosen prompt: one per uncached claim row.",
-            f"- Images processed for sample comparison: {count_images(expected) * len(results)}.",
-            "- Token usage depends on image encoding and model accounting; prompts are compact JSON contexts plus submitted images.",
-            "- Cost estimate should be filled with the actual model pricing after a real run.",
-            "- Runtime is sequential by design for reproducibility and simpler RPM/TPM handling.",
+            f"- Model calls for this sample comparison: {sample_calls} ({len(expected)} rows x {len(results)} prompt configs).",
+            f"- Model calls for the full test set with the chosen prompt: {test_calls} uncached calls.",
+            f"- Images processed for sample comparison: {sample_images}.",
+            f"- Images expected for full test processing: {test_images}.",
+            "- Token estimate assumptions: "
+            f"{sample_estimates['text_tokens_per_call']:.0f} text input tokens/call, "
+            f"{sample_estimates['image_tokens_per_image']:.0f} image tokens/image, "
+            f"{sample_estimates['output_tokens_per_call']:.0f} output tokens/call.",
+            "- Sample estimated usage: "
+            f"{sample_estimates['input_tokens']:.0f} input tokens and {sample_estimates['output_tokens']:.0f} output tokens.",
+            "- Full-test estimated usage: "
+            f"{test_estimates['input_tokens']:.0f} input tokens and {test_estimates['output_tokens']:.0f} output tokens.",
+            "- Pricing assumptions: "
+            f"${sample_estimates['input_cost_per_1m']:.4f}/1M input tokens and "
+            f"${sample_estimates['output_cost_per_1m']:.4f}/1M output tokens "
+            "(override with CLAIM_REVIEW_EST_INPUT_COST_PER_1M_USD and CLAIM_REVIEW_EST_OUTPUT_COST_PER_1M_USD).",
+            f"- Estimated full-test processing cost: ${test_estimates['cost']:.4f}.",
+            f"- Sample runtime used for planning: {runtime_seconds:.1f}s total, {average_seconds_per_call:.2f}s/call average.",
+            f"- Estimated full-test runtime at that average latency: {estimated_test_runtime_seconds:.1f}s.",
+            "- TPM/RPM considerations: processing is sequential, so request rate is roughly one in-flight call at a time; "
+            "reduce --limit during debugging if quota or rate limits are tight.",
             "- Cache keys include prompt config, model, claim content, user history, requirements, and image hashes.",
             f"- Sample claim_status distribution: {dict(claim_status_counts)}.",
         ]
@@ -132,11 +199,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     sample_path = repo_root / "dataset" / "sample_claims.csv"
+    test_path = repo_root / "dataset" / "claims.csv"
     expected = load_claim_rows(sample_path, labeled=True)
     if args.limit is not None:
         expected = expected[: args.limit]
+    test_rows = load_claim_rows(test_path, labeled=False)
 
     results: dict[str, list[dict[str, str]]] = {}
+    started_at = time.perf_counter()
     for config in args.prompt_configs:
         output_path = repo_root / "code" / "evaluation" / f"sample_predictions_{config}.csv"
         try:
@@ -166,7 +236,16 @@ def main(argv: list[str] | None = None) -> int:
             exact_match(results[config], expected, CORE_EVAL_FIELDS),
         ),
     )
-    write_report(args.report, model=args.model, expected=expected, results=results, chosen=chosen)
+    runtime_seconds = time.perf_counter() - started_at
+    write_report(
+        args.report,
+        model=args.model,
+        expected=expected,
+        test_rows=test_rows,
+        results=results,
+        chosen=chosen,
+        runtime_seconds=runtime_seconds,
+    )
     print(f"Wrote evaluation report to {args.report}")
     print(f"Log file: {log_file}")
     return 0

@@ -60,9 +60,10 @@ def canonical_risk_flags(value: Any) -> str:
         flag = part.strip().lower().replace(" ", "_").replace("-", "_")
         if flag and flag in RISK_FLAG_VALUES and flag not in normalized:
             normalized.append(flag)
-    if not normalized or "none" in normalized:
+    real_flags = [flag for flag in normalized if flag != "none"]
+    if not real_flags:
         return "none"
-    return ";".join(flag for flag in RISK_FLAG_VALUES if flag in normalized and flag != "none")
+    return ";".join(flag for flag in RISK_FLAG_VALUES if flag in real_flags)
 
 
 def canonical_supporting_ids(value: Any, valid_ids: list[str]) -> str:

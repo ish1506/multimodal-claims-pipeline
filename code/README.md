@@ -57,6 +57,35 @@ Evaluation compares `concise_v1` and `rubric_v1` on `dataset/sample_claims.csv`,
 
 Use `--log-file logs/evaluation.log` to pick a stable log path for evaluation.
 
+## Recommended Runbook
+
+Use this sequence for a submission-quality run:
+
+```bash
+uv sync
+uv run ruff check .
+uv run pytest -q
+uv run python code/evaluation/main.py --log-file logs/evaluation.log
+uv run python code/main.py --input dataset/claims.csv --output output.csv --prompt-config rubric_v1 --log-file logs/final_run.log
+uv run python code/validate_output.py --input output.csv --claims dataset/claims.csv
+```
+
+The evaluation command is only for `dataset/sample_claims.csv`; it writes sample prediction files under `code/evaluation/` and must not be used as the submitted `output.csv`. The final prediction command must read `dataset/claims.csv` and write the root-level `output.csv`.
+
+After the full run, confirm:
+
+```bash
+uv run python code/validate_output.py --input output.csv --claims dataset/claims.csv
+```
+
+Expected result:
+
+```text
+Validation passed for output.csv
+```
+
+The final `output.csv` should contain 44 prediction rows for `dataset/claims.csv`, with `images/test/...` paths copied from the source input. If it contains 20 rows or `images/sample/...` paths, it is a sample-evaluation artifact and must be regenerated with the full prediction command.
+
 ## Validation
 
 ```bash

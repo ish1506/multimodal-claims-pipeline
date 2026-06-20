@@ -59,3 +59,31 @@ def test_validation_rejects_non_canonical_risk_order():
     with pytest.raises(ValidationError):
         validate_prediction(prediction, context.source_row, 1)
 
+
+@pytest.mark.parametrize(
+    ("raw_flags", "expected_flags"),
+    [
+        ("none;user_history_risk", "user_history_risk"),
+        (["none", "blurry_image"], "blurry_image"),
+        ("none", "none"),
+    ],
+)
+def test_normalize_prediction_discards_none_when_real_risk_flags_exist(raw_flags, expected_flags):
+    context = _context()
+    prediction = normalize_prediction(
+        {
+            "evidence_standard_met": "true",
+            "evidence_standard_met_reason": "clear",
+            "risk_flags": raw_flags,
+            "issue_type": "dent",
+            "object_part": "door",
+            "claim_status": "supported",
+            "claim_status_justification": "visible",
+            "supporting_image_ids": "img_1",
+            "valid_image": "true",
+            "severity": "medium",
+        },
+        context,
+    )
+    assert prediction["risk_flags"] == expected_flags
+    validate_prediction(prediction, context.source_row, 1)
