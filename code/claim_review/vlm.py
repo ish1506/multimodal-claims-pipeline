@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 from openai.types.chat import (
@@ -18,6 +18,20 @@ from .usage import UsageCollector, UsageSample
 
 LOGGER = logging.getLogger(__name__)
 HTTP_LOGGER = logging.getLogger("claim_review.http")
+
+
+def completion_token_limit_param(model: str) -> str:
+    """Return the Chat Completions token-limit parameter for a model family."""
+    normalized = model.lower()
+    if normalized.startswith(("gpt-5", "o1", "o3", "o4")):
+        return "max_completion_tokens"
+    return "max_tokens"
+
+
+def supports_custom_temperature(model: str) -> bool:
+    """Return whether a model accepts non-default Chat Completions temperature."""
+    normalized = model.lower()
+    return not normalized.startswith(("gpt-5", "o1", "o3", "o4"))
 
 
 class VLMClient(Protocol):
@@ -107,21 +121,16 @@ class OpenAIVLMClient:
             len(images),
             ",".join(image.image_id for image in images),
         )
+        request: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            completion_token_limit_param(model): 1200,
+        }
+        if supports_custom_temperature(model):
+            request["temperature"] = 0
         if prompt_config == "concise_v1":
-            response = self._client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0,
-                max_tokens=1200,
-                response_format={"type": "json_object"},
-            )
-        else:
-            response = self._client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0,
-                max_tokens=1200,
-            )
+            request["response_format"] = {"type": "json_object"}
+        response = self._client.chat.completions.create(**request)
         LOGGER.info("vlm_response row_index=%s finish_reason=%s", context.row_index, response.choices[0].finish_reason)
         if response.usage is not None:
             LOGGER.info(

@@ -10,6 +10,7 @@ from .context import build_claim_context
 from .csv_io import load_claim_rows, load_evidence_requirements, load_user_history, write_predictions
 from .images import prepare_images
 from .normalization import io_failure_prediction, normalize_prediction
+from .prompts import build_prompt
 from .response_parser import extract_prediction_json
 from .usage import UsageCollector
 from .validation import validate_prediction, validate_prediction_rows
@@ -38,7 +39,8 @@ def review_claim(
     max_parse_attempts: int = 2,
 ) -> dict[str, str]:
     """Review one claim through cache, VLM call, parsing, normalization, and validation."""
-    cache_key = cache.key(context, images, prompt_config=prompt_config, model=model)
+    prompt_text = build_prompt(context, prompt_config)
+    cache_key = cache.key(context, images, prompt_config=prompt_config, prompt_text=prompt_text, model=model)
     cached = cache.get(cache_key)
     if cached is not None:
         LOGGER.info("cache_hit row_index=%s user_id=%s prompt_config=%s model=%s", context.row_index, context.user_id, prompt_config, model)

@@ -18,7 +18,7 @@ Set credentials either in the shell or in a root-level `.env` file:
 
 ```bash
 OPENAI_API_KEY=...
-OPENAI_VISION_MODEL=gpt-4.1-mini
+OPENAI_VISION_MODEL=gpt-5.4-mini
 ```
 
 `OPENAI_VISION_MODEL` is optional. Shell environment variables take precedence over `.env` values. The default model is configured in `claim_review.constants.DEFAULT_MODEL`.
@@ -53,7 +53,15 @@ The HTTP log records outgoing method/URL, response status, and duration for Open
 uv run python code/evaluation/main.py
 ```
 
-Evaluation compares `concise_v1` and `rubric_v1` on `dataset/sample_claims.csv`, writes per-prompt sample predictions under `code/evaluation/`, and updates `code/evaluation/evaluation_report.md`.
+Evaluation compares `concise_v1` and `rubric_v1` on `dataset/sample_claims.csv`, writes per-prompt sample predictions under `code/evaluation/`, and updates `code/evaluation/evaluation_report.md`. The report includes exact-match metrics, a weighted score, F1 for semicolon-delimited fields such as `risk_flags` and `supporting_image_ids`, and slice metrics by object type and expected status.
+
+To add VLM-as-judge diagnostics for a small subset, pass a stronger judge model:
+
+```bash
+uv run python code/evaluation/main.py --prompt-configs rubric_v1 --judge-model gpt-5.5 --judge-limit 5 --log-file logs/judge_eval.log
+```
+
+Judge calls inspect the same images and score decision quality, explanation grounding, risk flags, and supporting-image selection. They are evaluation-only calls and are not used by the production prediction pipeline.
 
 To calibrate token and cost estimates from real API usage, run a small uncached sample:
 
@@ -104,7 +112,7 @@ Validation checks required column order, row count, verbatim copied input fields
 
 ## Caching
 
-The default runtime cache is `code/.cache/claim_review_cache.json`. Cache keys include claim content, user history, evidence requirements, image hashes, prompt config, and model name. Prompt edits should use a new prompt config name or a cleared cache.
+The default runtime cache is `code/.cache/claim_review_cache.json`. Cache keys include claim content, user history, evidence requirements, image hashes, prompt config, rendered prompt text, and model name. Prompt edits automatically produce new cache keys.
 
 ## Submission Checklist
 

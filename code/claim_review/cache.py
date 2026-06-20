@@ -25,6 +25,7 @@ class PredictionCache:
         images: list[PreparedImage],
         *,
         prompt_config: str,
+        prompt_text: str,
         model: str,
     ) -> str:
         """Create a cache key from claim content, images, prompt, and model."""
@@ -34,6 +35,7 @@ class PredictionCache:
             "evidence_requirements": context.evidence_requirements,
             "image_hashes": [(image.source_path, image.bytes_sha256) for image in images],
             "prompt_config": prompt_config,
+            "prompt_text_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
             "model": model,
         }
         encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
